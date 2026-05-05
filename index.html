@@ -792,7 +792,7 @@ function handleKeyInput() {
   const val = document.getElementById('apiKeyInput').value.trim();
   const status = document.getElementById('apiKeyStatus');
   if (!val) {
-    status.innerHTML = '<span class="key-hint">Required for AI analysis. Get yours free at <a class="api-key-hint-link" href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a> · Stored in memory only, never sent anywhere except Anthropic directly.</span>';
+    status.innerHTML = '<span class="key-hint">Required for AI analysis. Get yours free at <a class="api-key-hint-link" href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a> · Stored in your browser only, never sent anywhere except Anthropic directly.</span>';
   } else if (!val.startsWith('sk-ant-')) {
     status.innerHTML = '<span class="key-err">That doesn\'t look like an Anthropic key — it should start with sk-ant-</span>';
   } else {
@@ -808,10 +808,28 @@ function saveApiKey() {
     return;
   }
   anthropicApiKey = val;
-  status.innerHTML = '<span class="key-ok">✓ Key saved — you\'re good to go. Pick a mode above.</span>';
-  // Mask the input after saving
+  localStorage.setItem('ftr_api_key', val);
+  status.innerHTML = '<span class="key-ok">✓ Key saved to your browser — you won\'t need to enter it again. Pick a mode above.</span>';
   document.getElementById('apiKeyInput').value = val.substring(0, 12) + '••••••••••••••••••••••••';
 }
+
+function clearApiKey() {
+  anthropicApiKey = '';
+  localStorage.removeItem('ftr_api_key');
+  document.getElementById('apiKeyInput').value = '';
+  document.getElementById('apiKeyStatus').innerHTML = '<span class="key-hint">Key cleared. Enter a new one above.</span>';
+}
+
+// Load saved key on startup
+(function initApiKey() {
+  const saved = localStorage.getItem('ftr_api_key');
+  if (saved) {
+    anthropicApiKey = saved;
+    document.getElementById('apiKeyInput').value = saved.substring(0, 12) + '••••••••••••••••••••••••';
+    document.getElementById('apiKeyStatus').innerHTML =
+      '<span class="key-ok">✓ Key loaded from browser — you\'re good to go.</span> <button onclick="clearApiKey()" style="background:none;border:none;color:var(--muted);font-family:\'DM Mono\',monospace;font-size:0.58rem;cursor:pointer;text-decoration:underline;padding:0;letter-spacing:0.04em;">Clear key</button>';
+  }
+})();
 
 function getApiHeaders() {
   if (!anthropicApiKey) throw new Error('No API key set — go back to the home screen and enter your Anthropic API key.');
@@ -956,7 +974,7 @@ Flags: green=positive, yellow=neutral/mixed, red=negative, gray=uncertain.`;
       headers: getApiHeaders(),
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
+        max_tokens: 2048,
         messages: [{
           role: 'user',
           content: [
@@ -968,8 +986,13 @@ Flags: green=positive, yellow=neutral/mixed, red=negative, gray=uncertain.`;
     });
 
     const data = await res.json();
+    if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
     const raw = data.content?.find(b => b.type === 'text')?.text || '';
-    const analysis = JSON.parse(raw.replace(/```json|```/g,'').trim());
+    // Extract JSON object robustly — find first { to last }
+    const jsonStart = raw.indexOf('{');
+    const jsonEnd = raw.lastIndexOf('}');
+    if (jsonStart === -1 || jsonEnd === -1) throw new Error('No JSON found in response — try again.');
+    const analysis = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
 
     document.getElementById('snapAnalyzing').style.display = 'none';
     document.getElementById('snapResult').style.display = 'flex';
@@ -1297,13 +1320,17 @@ Score: S=steal, A=solid buy, B=fair, C=mediocre, D=skip.`;
       headers: getApiHeaders(),
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
+        max_tokens: 2048,
         messages: [{ role: 'user', content: msgContent }]
       })
     });
     const data = await res.json();
+    if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
     const raw = data.content?.find(b=>b.type==='text')?.text||'';
-    const analysis = JSON.parse(raw.replace(/```json|```/g,'').trim());
+    const jsonStart = raw.indexOf('{');
+    const jsonEnd = raw.lastIndexOf('}');
+    if (jsonStart === -1 || jsonEnd === -1) throw new Error('No JSON found in response — try again.');
+    const analysis = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
     analysis.id = l.id;
     analysisCache[l.id] = analysis;
     const listing = allListings.find(x=>x.id===l.id);
