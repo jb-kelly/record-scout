@@ -1202,47 +1202,58 @@ function heuristicScore(l) {
   points += condPts[l.condition] || 0;
 
   // ── PRESSING QUALITY signals (–15 to +20 pts) ──
-  // Green flags — original, high-quality pressings
-  if (/\brl\b/.test(sig)) points += 20;           // Robert Ludwig cut
-  if (/porky|pecko/.test(sig)) points += 16;       // UK original cut
-  if (/\borig/.test(sig)) points += 10;            // original pressing
-  if (/\bpromo\b/.test(sig)) points += 6;          // promo copy
-  if (/\b(a1|b1)\b/.test(sig)) points += 8;        // first stamper
-
-  // Red flags — reissues, digital, club
-  if (/\bclub\b/.test(sig)) points -= 12;          // record club pressing
-  if (/\b(re-?master|rm\b)/.test(sig)) points -= 8; // remastered = likely digital
-  if (/\b180g\b/.test(sig)) points -= 4;           // modern 180g repress
-  if (/\breissue|\bre\b/.test(sig)) points -= 4;   // reissue
-  if (/\brepress|\brp\b/.test(sig)) points -= 6;   // repress
+  if (/\brl\b/.test(sig)) points += 20;
+  if (/porky|pecko/.test(sig)) points += 16;
+  if (/\borig/.test(sig)) points += 10;
+  if (/\bpromo\b/.test(sig)) points += 6;
+  if (/\b(a1|b1)\b/.test(sig)) points += 8;
+  if (/\bclub\b/.test(sig)) points -= 12;
+  if (/\b(re-?master|rm\b)/.test(sig)) points -= 8;
+  if (/\b180g\b/.test(sig)) points -= 4;
+  if (/\breissue|\bre\b/.test(sig)) points -= 4;
+  if (/\brepress|\brp\b/.test(sig)) points -= 6;
 
   // ── YEAR signals (0–15 pts) ──
-  // Older pressings are generally more valuable
   if (year > 0 && year < 1970) points += 15;
   else if (year >= 1970 && year < 1980) points += 12;
   else if (year >= 1980 && year < 1990) points += 8;
   else if (year >= 1990 && year < 2000) points += 4;
   else if (year >= 2000 && year < 2010) points += 2;
-  else if (year >= 2010) points += 0; // modern repress baseline
+
+  // ── DISCOGS COMMUNITY DEMAND (0–15 pts) ──
+  // want/have ratio = collector desirability signal
+  const have = l.have || 0;
+  const want = l.want || 0;
+  if (have > 0) {
+    const ratio = want / have;
+    if (ratio >= 1.0) points += 15;       // more people want it than have it — highly sought
+    else if (ratio >= 0.5) points += 10;  // strong demand
+    else if (ratio >= 0.25) points += 6;  // solid interest
+    else if (ratio >= 0.1) points += 3;   // moderate interest
+    // below 0.1 = common/ubiquitous, no bonus
+  }
+  // Raw want count also matters — very wanted records score higher
+  if (want >= 2000) points += 8;
+  else if (want >= 500) points += 5;
+  else if (want >= 100) points += 2;
 
   // ── PRICE VALUE signal (–5 to +5 pts) ──
-  // Very cheap for VG+ is suspicious; very expensive for VG is bad value
-  const total = l.price + (l.shipping_price || 6); // assume $6 ship if unknown
-  if (l.condition === 'Very Good Plus (VG+)' && total < 8) points -= 4;   // suspiciously cheap
-  if (l.condition === 'Very Good (VG)' && total > 30) points -= 5;        // overpriced for grade
-  if (l.condition === 'Very Good Plus (VG+)' && total >= 10 && total <= 30) points += 5; // sweet spot
+  const total = l.price + (l.shipping_price || 6);
+  if (l.condition === 'Very Good Plus (VG+)' && total < 8) points -= 4;
+  if (l.condition === 'Very Good (VG)' && total > 30) points -= 5;
+  if (l.condition === 'Very Good Plus (VG+)' && total >= 10 && total <= 30) points += 5;
 
   // ── SLEEVE mismatch penalty ──
   const sleeveOrder = {'Mint (M)':6,'Near Mint (NM or M-)':5,'Very Good Plus (VG+)':4,'Very Good (VG)':3,'Good Plus (G+)':2,'Good (G)':1};
   const mediaRank = sleeveOrder[l.condition] || 0;
   const sleeveRank = sleeveOrder[l.sleeve_condition] || 0;
-  if (mediaRank - sleeveRank >= 2) points -= 4; // media much better than sleeve = suspicious
+  if (mediaRank - sleeveRank >= 2) points -= 4;
 
-  // Convert points to letter grade
-  if (points >= 38) return 'S';
-  if (points >= 28) return 'A';
-  if (points >= 18) return 'B';
-  if (points >= 10) return 'C';
+  // Convert to letter grade (scale adjusted for new max ~88 pts)
+  if (points >= 52) return 'S';
+  if (points >= 38) return 'A';
+  if (points >= 24) return 'B';
+  if (points >= 12) return 'C';
   return 'D';
 }
 
@@ -1264,8 +1275,11 @@ function parseListings(ls) {
       comments: l.comments||'',
       url: l.uri ? `https://www.discogs.com${l.uri}` : '#',
       genres: l.release?.genres||[], styles: l.release?.styles||[],
+      // Discogs community demand signals
+      have: l.release?.stats?.community?.in_collection || l.release?.community?.have || 0,
+      want: l.release?.stats?.community?.in_wantlist  || l.release?.community?.want || 0,
       score: '?',
-      heuristic: true   // flag so we know this hasn't been AI-scored yet
+      heuristic: true
     };
     parsed.score = heuristicScore(parsed);
     return parsed;
@@ -1398,13 +1412,16 @@ function openPanel(id, e) {
   document.getElementById('pLink').href = l.url;
 
   const total = l.shipping_price!==null ? `$${(l.price+l.shipping_price).toFixed(2)} all-in` : `$${l.price.toFixed(2)}`;
+  const wantRatio = l.have > 0 ? (l.want/l.have).toFixed(2) : '—';
   document.getElementById('pMeta').innerHTML = `
     <div><div class="meta-l">Media</div><div class="meta-v">${condShort(l.condition)}</div></div>
     <div><div class="meta-l">Sleeve</div><div class="meta-v">${condShort(l.sleeve_condition)}</div></div>
     <div><div class="meta-l">Year</div><div class="meta-v">${l.year||'—'}</div></div>
     <div><div class="meta-l">Format</div><div class="meta-v">${l.format||'—'}</div></div>
     <div><div class="meta-l">Price + Ship</div><div class="meta-v">${total}</div></div>
-    <div><div class="meta-l">Genre</div><div class="meta-v">${l.genres[0]||l.styles[0]||'—'}</div></div>`;
+    <div><div class="meta-l">Genre</div><div class="meta-v">${l.genres[0]||l.styles[0]||'—'}</div></div>
+    <div><div class="meta-l">Discogs Wants</div><div class="meta-v" style="color:var(--teal)">${l.want > 0 ? l.want.toLocaleString() : '—'}</div></div>
+    <div><div class="meta-l">Want/Have Ratio</div><div class="meta-v" style="color:var(--amber)">${wantRatio}</div></div>`;
 
   document.getElementById('sidePanel').classList.add('open');
   document.getElementById('sellerMain').classList.add('panel-open');
@@ -1465,6 +1482,7 @@ Analyze this Discogs listing:
 - Price: $${l.price.toFixed(2)} + ship ${l.shipping_price!==null?'$'+l.shipping_price.toFixed(2):'unknown'}
 - All-in: ${total}
 - Genre: ${[...l.genres,...l.styles].join(', ')||'unknown'}
+- Discogs community: ${l.have > 0 ? l.have.toLocaleString() : 'unknown'} have it, ${l.want > 0 ? l.want.toLocaleString() : 'unknown'} want it${l.have > 0 ? ` (want/have ratio: ${(l.want/l.have).toFixed(2)})` : ''}
 - ${sellerNote}
 ${panelPhotoB64 ? '\nA photo of the record/sleeve has also been provided. Use it to refine your analysis.' : ''}
 
