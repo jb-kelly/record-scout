@@ -1130,7 +1130,7 @@ function condShort(c) {
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 async function fetchPage(seller, page) {
-  const res = await fetch(`https://api.discogs.com/users/${seller}/inventory?per_page=${PER_PAGE}&page=${page}&sort=listed&sort_order=desc`, {headers:{'User-Agent':'ForTheRecord/2.0'}});
+  const res = await fetch(`https://api.discogs.com/users/${seller}/inventory?per_page=${PER_PAGE}&page=${page}&sort=listed&sort_order=desc`);
   if (!res.ok) throw new Error(`API error ${res.status} — seller not found or inventory is private`);
   return res.json();
 }
