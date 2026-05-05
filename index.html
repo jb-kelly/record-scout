@@ -437,6 +437,7 @@ td { padding: 9px 10px; vertical-align: middle; }
 .pill-C { background: rgba(196,122,58,0.09); color: var(--accent2); border: 1px solid rgba(196,122,58,0.25); }
 .pill-D { background: rgba(224,112,80,0.08); color: var(--red); border: 1px solid rgba(224,112,80,0.2); }
 .pill-p { background: var(--surface2); color: var(--muted); border: 1px solid var(--border2); font-style: italic; }
+.pill-heuristic { border-style: dashed !important; opacity: 0.8; }
 
 .ext-link { display: inline-block; background: none; border: 1px solid var(--border); color: var(--muted); font-size: 0.54rem; padding: 2px 5px; border-radius: 2px; text-decoration: none; transition: all 0.15s; }
 .ext-link:hover { border-color: var(--accent); color: var(--accent); }
@@ -708,12 +709,12 @@ td { padding: 9px 10px; vertical-align: middle; }
     <span class="ctrl-label">Media</span>
     <select id="condFilter" onchange="applyFilters()">
       <option value="" selected>All conditions</option>
-      <option value="Mint">Mint</option>
-      <option value="Near Mint">Near Mint (NM)</option>
-      <option value="Very Good Plus">VG+</option>
-      <option value="Very Good">VG</option>
-      <option value="Good Plus">G+</option>
-      <option value="Good">Good</option>
+      <option value="Mint (M)">Mint (M)</option>
+      <option value="Near Mint (NM or M-)">Near Mint (NM)</option>
+      <option value="Very Good Plus (VG+)">Very Good Plus (VG+)</option>
+      <option value="Very Good (VG)">Very Good (VG)</option>
+      <option value="Good Plus (G+)">Good Plus (G+)</option>
+      <option value="Good (G)">Good (G)</option>
     </select>
     <span class="ctrl-label" style="margin-left:6px">Format</span>
     <select id="formatFilter" onchange="applyFilters()">
@@ -1094,7 +1095,16 @@ const analysisCache = {};
 // Panel photo state
 let panelPhotoB64 = null, panelPhotoMime = 'image/jpeg';
 
-const condOrder = {'Mint (M)':7,'Near Mint (NM or M-)':6,'Very Good Plus (VG+)':5,'Very Good (VG)':4,'Good Plus (G+)':3,'Good (G)':2,'Fair (F)':1,'Poor (P)':0};
+const condOrder = {
+  'Mint (M)': 7,
+  'Near Mint (NM or M-)': 6,
+  'Very Good Plus (VG+)': 5,
+  'Very Good (VG)': 4,
+  'Good Plus (G+)': 3,
+  'Good (G)': 2,
+  'Fair (F)': 1,
+  'Poor (P)': 0
+};
 const scoreOrder = {'S':5,'A':4,'B':3,'C':2,'D':1,'?':0};
 
 function condClass(c) {
@@ -1175,26 +1185,91 @@ async function loadAllPages() {
   btn.disabled = false; btn.textContent = 'Load All Pages';
 }
 
+function heuristicScore(l) {
+  // Already AI-scored — use that
+  if (analysisCache[l.id]) return analysisCache[l.id].score;
+
+  let points = 0;
+  const sig = (l.listing_title + ' ' + l.format_desc + ' ' + l.comments).toLowerCase();
+  const year = l.year || 0;
+
+  // ── CONDITION (0–30 pts) ──
+  const condPts = {
+    'Mint (M)': 30, 'Near Mint (NM or M-)': 26,
+    'Very Good Plus (VG+)': 20, 'Very Good (VG)': 12,
+    'Good Plus (G+)': 5, 'Good (G)': 1
+  };
+  points += condPts[l.condition] || 0;
+
+  // ── PRESSING QUALITY signals (–15 to +20 pts) ──
+  // Green flags — original, high-quality pressings
+  if (/\brl\b/.test(sig)) points += 20;           // Robert Ludwig cut
+  if (/porky|pecko/.test(sig)) points += 16;       // UK original cut
+  if (/\borig/.test(sig)) points += 10;            // original pressing
+  if (/\bpromo\b/.test(sig)) points += 6;          // promo copy
+  if (/\b(a1|b1)\b/.test(sig)) points += 8;        // first stamper
+
+  // Red flags — reissues, digital, club
+  if (/\bclub\b/.test(sig)) points -= 12;          // record club pressing
+  if (/\b(re-?master|rm\b)/.test(sig)) points -= 8; // remastered = likely digital
+  if (/\b180g\b/.test(sig)) points -= 4;           // modern 180g repress
+  if (/\breissue|\bre\b/.test(sig)) points -= 4;   // reissue
+  if (/\brepress|\brp\b/.test(sig)) points -= 6;   // repress
+
+  // ── YEAR signals (0–15 pts) ──
+  // Older pressings are generally more valuable
+  if (year > 0 && year < 1970) points += 15;
+  else if (year >= 1970 && year < 1980) points += 12;
+  else if (year >= 1980 && year < 1990) points += 8;
+  else if (year >= 1990 && year < 2000) points += 4;
+  else if (year >= 2000 && year < 2010) points += 2;
+  else if (year >= 2010) points += 0; // modern repress baseline
+
+  // ── PRICE VALUE signal (–5 to +5 pts) ──
+  // Very cheap for VG+ is suspicious; very expensive for VG is bad value
+  const total = l.price + (l.shipping_price || 6); // assume $6 ship if unknown
+  if (l.condition === 'Very Good Plus (VG+)' && total < 8) points -= 4;   // suspiciously cheap
+  if (l.condition === 'Very Good (VG)' && total > 30) points -= 5;        // overpriced for grade
+  if (l.condition === 'Very Good Plus (VG+)' && total >= 10 && total <= 30) points += 5; // sweet spot
+
+  // ── SLEEVE mismatch penalty ──
+  const sleeveOrder = {'Mint (M)':6,'Near Mint (NM or M-)':5,'Very Good Plus (VG+)':4,'Very Good (VG)':3,'Good Plus (G+)':2,'Good (G)':1};
+  const mediaRank = sleeveOrder[l.condition] || 0;
+  const sleeveRank = sleeveOrder[l.sleeve_condition] || 0;
+  if (mediaRank - sleeveRank >= 2) points -= 4; // media much better than sleeve = suspicious
+
+  // Convert points to letter grade
+  if (points >= 38) return 'S';
+  if (points >= 28) return 'A';
+  if (points >= 18) return 'B';
+  if (points >= 10) return 'C';
+  return 'D';
+}
+
 function parseListings(ls) {
-  return ls.map(l => ({
-    id: l.id,
-    title: l.release?.title||'—', artist: l.release?.artist||'—',
-    year: l.release?.year||null,
-    format: (l.release?.formats||[]).map(f=>f.name).join(', '),
-    format_desc: (l.release?.formats||[]).flatMap(f=>f.descriptions||[]).join(', '),
-    // Full listing title as it appears on Discogs — contains pressing codes like RE, MO, RL, SP etc.
-    listing_title: l.release?.description || [
-      l.release?.title,
-      (l.release?.formats||[]).map(f=>[f.name,...(f.descriptions||[])].join(', ')).join(' / ')
-    ].filter(Boolean).join(' — '),
-    condition: l.condition||'', sleeve_condition: l.sleeve_condition||'',
-    price: parseFloat(l.price?.value)||0, currency: l.price?.currency||'USD',
-    shipping_price: parseFloat(l.shipping_price?.value)||null,
-    comments: l.comments||'',
-    url: l.uri ? `https://www.discogs.com${l.uri}` : '#',
-    genres: l.release?.genres||[], styles: l.release?.styles||[],
-    score: analysisCache[l.id]?.score||'?'
-  }));
+  return ls.map(l => {
+    const parsed = {
+      id: l.id,
+      title: l.release?.title||'—', artist: l.release?.artist||'—',
+      year: l.release?.year||null,
+      format: (l.release?.formats||[]).map(f=>f.name).join(', '),
+      format_desc: (l.release?.formats||[]).flatMap(f=>f.descriptions||[]).join(', '),
+      listing_title: l.release?.description || [
+        l.release?.title,
+        (l.release?.formats||[]).map(f=>[f.name,...(f.descriptions||[])].join(', ')).join(' / ')
+      ].filter(Boolean).join(' — '),
+      condition: l.condition||'', sleeve_condition: l.sleeve_condition||'',
+      price: parseFloat(l.price?.value)||0, currency: l.price?.currency||'USD',
+      shipping_price: parseFloat(l.shipping_price?.value)||null,
+      comments: l.comments||'',
+      url: l.uri ? `https://www.discogs.com${l.uri}` : '#',
+      genres: l.release?.genres||[], styles: l.release?.styles||[],
+      score: '?',
+      heuristic: true   // flag so we know this hasn't been AI-scored yet
+    };
+    parsed.score = heuristicScore(parsed);
+    return parsed;
+  });
 }
 
 function applyFilters() {
@@ -1204,7 +1279,7 @@ function applyFilters() {
   const sort = document.getElementById('sortSelect').value;
 
   filtered = allListings.filter(l => {
-    if (cond && !l.condition.includes(cond)) return false;
+    if (cond && l.condition !== cond) return false;
     if (fmt) {
       const fmtLow = (l.format + ' ' + l.format_desc + ' ' + l.listing_title).toLowerCase();
       if (fmt === 'vinyl') {
@@ -1250,7 +1325,7 @@ function updateStats() {
   document.getElementById('stTotal').textContent = allListings.length;
   const avg = filtered.length ? '$'+(filtered.reduce((s,l)=>s+l.price,0)/filtered.length).toFixed(2):'—';
   document.getElementById('stAvg').textContent = avg;
-  document.getElementById('stScored').textContent = Object.keys(analysisCache).length;
+  document.getElementById('stScored').textContent = Object.keys(analysisCache).length + ' AI / ' + (allListings.length - Object.keys(analysisCache).length) + ' est.';
 }
 
 function renderPage() {
@@ -1268,11 +1343,14 @@ function renderPage() {
     const ship = l.shipping_price !== null ? `+$${l.shipping_price.toFixed(2)}` : '—';
     const total = l.shipping_price !== null ? `$${(l.price+l.shipping_price).toFixed(2)}` : '—';
     const fmt = [l.format, l.format_desc].filter(Boolean).join(' · ');
-    const sc = analysisCache[l.id]?.score||'?';
+    const cached = analysisCache[l.id];
+    const sc = cached?.score || l.score || '?';
+    const isAI = !!cached;
     const isActive = activeListing?.id === l.id;
-    const pill = sc==='?' ?
+    // AI-scored: solid pill. Heuristic: pill with ~ prefix and dashed border. Unscored: analyze
+    const pill = sc === '?' ?
       `<span class="score-pill pill-p" onclick="openAndScore(${l.id},event)">analyze</span>` :
-      `<span class="score-pill pill-${sc}" onclick="openPanel(${l.id},event)"><span class="score-pip"></span>${sc}</span>`;
+      `<span class="score-pill pill-${sc} ${isAI ? '' : 'pill-heuristic'}" onclick="${isAI ? `openPanel(${l.id},event)` : `openAndScore(${l.id},event)`}" title="${isAI ? 'AI-scored' : 'Estimated — click to AI-analyze'}"><span class="score-pip"></span>${isAI ? '' : '~'}${sc}</span>`;
 
     return `<tr id="row-${l.id}" class="${isActive?'row-active':''}" onclick="openPanel(${l.id})">
       <td class="cell-release">
