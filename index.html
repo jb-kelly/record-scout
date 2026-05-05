@@ -392,7 +392,7 @@ select:focus { outline: none; border-color: var(--accent); }
 }
 .stats-bar em { color: var(--amber); font-style: normal; font-weight: 700; }
 
-.seller-main { padding: 14px 12px 80px; transition: padding-right 0.32s cubic-bezier(0.4,0,0.2,1); }
+.seller-main { padding: 14px 14px 80px; transition: padding-right 0.32s cubic-bezier(0.4,0,0.2,1); overflow-x: hidden; }
 .seller-main.panel-open { padding-right: calc(var(--panel-w) + 18px); }
 
 /* state */
@@ -697,9 +697,9 @@ td { padding: 9px 10px; vertical-align: middle; }
 <div id="screen-seller" class="screen">
 
   <!-- inline seller search in header area -->
-  <div style="background:var(--surface);border-bottom:1px solid var(--border);padding:10px 36px;display:flex;align-items:center;gap:9px;flex-wrap:wrap;">
+  <div style="background:var(--surface);border-bottom:1px solid var(--border);padding:10px 14px;display:flex;align-items:center;gap:9px;flex-wrap:wrap;">
     <span style="font-size:0.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;">Seller</span>
-    <input type="text" id="sellerInput" placeholder="Discogs username" value="cryan12" style="width:170px;" />
+    <input type="text" id="sellerInput" placeholder="Discogs username" style="width:170px;" />
     <button class="btn" id="loadBtn" onclick="loadInventory()">Load</button>
     <span style="font-size:0.6rem;color:var(--muted);margin-left:4px;" id="sellerHint"></span>
   </div>
@@ -1130,6 +1130,13 @@ async function loadInventory() {
   if (!seller) return;
   currentSeller = seller; allListings = []; displayPage = 1;
   closePanel();
+
+  // Reset all filters to defaults on each new load
+  document.getElementById('condFilter').value = '';
+  document.getElementById('formatFilter').value = '';
+  document.getElementById('sortSelect').value = 'score_desc';
+  document.getElementById('searchFilter').value = '';
+
   const btn = document.getElementById('loadBtn');
   btn.disabled = true; btn.textContent = 'Loading...';
   document.getElementById('errorBar').style.display = 'none';
