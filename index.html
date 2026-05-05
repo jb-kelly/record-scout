@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -167,6 +168,37 @@ body {
 }
 
 .home-footer { margin-top: 52px; font-size: 0.58rem; color: var(--muted); letter-spacing: 0.1em; text-align: center; }
+
+/* API KEY */
+.api-key-block {
+  margin-top: 36px; width: 100%; max-width: 480px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 20px 24px;
+}
+.api-key-block-title {
+  font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--muted); margin-bottom: 10px;
+  display: flex; align-items: center; gap: 8px;
+}
+.api-key-block-title::before { content: '🔑'; font-size: 0.9rem; }
+.api-key-row { display: flex; gap: 8px; align-items: center; }
+.api-key-input {
+  flex: 1; background: var(--bg); border: 1px solid var(--border2);
+  color: var(--text); font-family: 'DM Mono', monospace; font-size: 0.72rem;
+  padding: 9px 12px; border-radius: 3px;
+  transition: border-color 0.2s; letter-spacing: 0.04em;
+}
+.api-key-input:focus { outline: none; border-color: var(--accent); }
+.api-key-input::placeholder { color: var(--muted); letter-spacing: 0; }
+.api-key-status {
+  font-size: 0.6rem; margin-top: 8px; min-height: 16px;
+  letter-spacing: 0.04em;
+}
+.key-ok  { color: var(--green); }
+.key-err { color: var(--red); }
+.key-hint { color: var(--muted); }
+.api-key-hint-link { color: var(--accent); text-decoration: none; }
+.api-key-hint-link:hover { text-decoration: underline; }
 
 /* ═══════════════════════════════════════════
    SNAP & ANALYZE (PHOTO MODE)
@@ -487,7 +519,18 @@ td { padding: 9px 10px; vertical-align: middle; }
     </div>
   </div>
 
-  <div class="home-footer">Powered by the Discogs API &amp; Claude · For the Record v2</div>
+  <div class="api-key-block">
+    <div class="api-key-block-title">Anthropic API Key Required</div>
+    <div class="api-key-row">
+      <input class="api-key-input" id="apiKeyInput" type="password" placeholder="sk-ant-api03-..." autocomplete="off" oninput="handleKeyInput()" onkeydown="if(event.key==='Enter')saveApiKey()" />
+      <button class="btn" onclick="saveApiKey()" style="flex-shrink:0">Save</button>
+    </div>
+    <div class="api-key-status" id="apiKeyStatus">
+      <span class="key-hint">Required for AI analysis. Get yours free at <a class="api-key-hint-link" href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a> · Stored in memory only, never sent anywhere except Anthropic directly.</span>
+    </div>
+  </div>
+
+  <div class="home-footer" style="margin-top:24px">Powered by the Discogs API &amp; Claude · For the Record v2</div>
 </div>
 
 <!-- ═══════════════════════════════════════════
@@ -742,6 +785,44 @@ td { padding: 9px 10px; vertical-align: middle; }
 </div>
 
 <script>
+/* ═══════════════ API KEY ═══════════════ */
+let anthropicApiKey = '';
+
+function handleKeyInput() {
+  const val = document.getElementById('apiKeyInput').value.trim();
+  const status = document.getElementById('apiKeyStatus');
+  if (!val) {
+    status.innerHTML = '<span class="key-hint">Required for AI analysis. Get yours free at <a class="api-key-hint-link" href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a> · Stored in memory only, never sent anywhere except Anthropic directly.</span>';
+  } else if (!val.startsWith('sk-ant-')) {
+    status.innerHTML = '<span class="key-err">That doesn\'t look like an Anthropic key — it should start with sk-ant-</span>';
+  } else {
+    status.innerHTML = '<span class="key-hint">Looks good — hit Save to continue.</span>';
+  }
+}
+
+function saveApiKey() {
+  const val = document.getElementById('apiKeyInput').value.trim();
+  const status = document.getElementById('apiKeyStatus');
+  if (!val || !val.startsWith('sk-ant-')) {
+    status.innerHTML = '<span class="key-err">Please enter a valid Anthropic API key (starts with sk-ant-)</span>';
+    return;
+  }
+  anthropicApiKey = val;
+  status.innerHTML = '<span class="key-ok">✓ Key saved — you\'re good to go. Pick a mode above.</span>';
+  // Mask the input after saving
+  document.getElementById('apiKeyInput').value = val.substring(0, 12) + '••••••••••••••••••••••••';
+}
+
+function getApiHeaders() {
+  if (!anthropicApiKey) throw new Error('No API key set — go back to the home screen and enter your Anthropic API key.');
+  return {
+    'Content-Type': 'application/json',
+    'x-api-key': anthropicApiKey,
+    'anthropic-version': '2023-06-01',
+    'anthropic-dangerous-direct-browser-access': 'true'
+  };
+}
+
 /* ═══════════════ ROUTING ═══════════════ */
 let currentMode = 'home';
 
@@ -755,6 +836,12 @@ function goHome() {
 }
 
 function goMode(mode) {
+  if (!anthropicApiKey) {
+    const status = document.getElementById('apiKeyStatus');
+    status.innerHTML = '<span class="key-err">⚠ Enter your API key first — analysis won\'t work without it.</span>';
+    document.getElementById('apiKeyInput').focus();
+    return;
+  }
   currentMode = mode;
   document.getElementById('screen-home').classList.remove('active');
   document.getElementById('screen-snap').classList.remove('active');
@@ -866,7 +953,7 @@ Flags: green=positive, yellow=neutral/mixed, red=negative, gray=uncertain.`;
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getApiHeaders(),
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 1000,
@@ -1207,7 +1294,7 @@ Score: S=steal, A=solid buy, B=fair, C=mediocre, D=skip.`;
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getApiHeaders(),
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 1000,
