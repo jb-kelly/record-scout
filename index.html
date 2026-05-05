@@ -707,7 +707,7 @@ td { padding: 9px 10px; vertical-align: middle; }
   <div class="seller-controls" id="sellerControls" style="display:none">
     <span class="ctrl-label">Media</span>
     <select id="condFilter" onchange="applyFilters()">
-      <option value="">All conditions</option>
+      <option value="" selected>All conditions</option>
       <option value="Mint">Mint</option>
       <option value="Near Mint">Near Mint (NM)</option>
       <option value="Very Good Plus">VG+</option>
@@ -717,7 +717,7 @@ td { padding: 9px 10px; vertical-align: middle; }
     </select>
     <span class="ctrl-label" style="margin-left:6px">Format</span>
     <select id="formatFilter" onchange="applyFilters()">
-      <option value="">All formats</option>
+      <option value="" selected>All formats</option>
       <option value="vinyl">Vinyl (LP/12"/7")</option>
       <option value="cd">CD</option>
       <option value="cassette">Cassette</option>
@@ -725,7 +725,7 @@ td { padding: 9px 10px; vertical-align: middle; }
     </select>
     <span class="ctrl-label" style="margin-left:6px">Sort</span>
     <select id="sortSelect" onchange="applyFilters()">
-      <option value="score_desc">Score: Best First</option>
+      <option value="score_desc" selected>Score: Best First</option>
       <option value="price_asc">Price: Low→High</option>
       <option value="price_desc">Price: High→Low</option>
       <option value="title_asc">Title: A–Z</option>
@@ -1206,8 +1206,20 @@ function applyFilters() {
   filtered = allListings.filter(l => {
     if (cond && !l.condition.includes(cond)) return false;
     if (fmt) {
-      const fmtLow = (l.format + ' ' + l.format_desc).toLowerCase();
-      if (fmt === 'vinyl' && !fmtLow.includes('vinyl') && !fmtLow.includes('lp') && !fmtLow.includes('12"') && !fmtLow.includes('7"') && !fmtLow.includes('10"')) return false;
+      const fmtLow = (l.format + ' ' + l.format_desc + ' ' + l.listing_title).toLowerCase();
+      if (fmt === 'vinyl') {
+        // Vinyl = anything that isn't CD, cassette, or digital
+        const isNonVinyl = fmtLow.includes('cd') || fmtLow.includes('cassette') ||
+                           fmtLow.includes('digital') || fmtLow.includes('dvd') ||
+                           fmtLow.includes('blu-ray') || fmtLow.includes('file');
+        if (isNonVinyl) return false;
+        // Must positively match a vinyl indicator OR default to true if no known non-vinyl found
+        const isVinyl = fmtLow.includes('vinyl') || fmtLow.includes('lp') ||
+                        fmtLow.includes('12') || fmtLow.includes('7"') ||
+                        fmtLow.includes('10"') || fmtLow.includes('album') ||
+                        fmtLow.includes('ep') || fmtLow.includes('single');
+        if (!isVinyl && isNonVinyl) return false;
+      }
       if (fmt === 'cd' && !fmtLow.includes('cd')) return false;
       if (fmt === 'cassette' && !fmtLow.includes('cassette')) return false;
       if (fmt === 'box' && !fmtLow.includes('box')) return false;
