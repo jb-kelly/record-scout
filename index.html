@@ -801,16 +801,26 @@ function handleKeyInput() {
 }
 
 function saveApiKey() {
-  const val = document.getElementById('apiKeyInput').value.trim();
+  // Read the real value only if it doesn't contain our mask character
+  const inputEl = document.getElementById('apiKeyInput');
+  const val = inputEl.value.trim();
   const status = document.getElementById('apiKeyStatus');
+
+  // If the field contains bullets, the real key is already saved — don't overwrite
+  if (val.includes('•')) {
+    status.innerHTML = '<span class="key-ok">✓ Key already saved — you\'re good to go. Pick a mode above.</span>';
+    return;
+  }
+
   if (!val || !val.startsWith('sk-ant-')) {
     status.innerHTML = '<span class="key-err">Please enter a valid Anthropic API key (starts with sk-ant-)</span>';
     return;
   }
   anthropicApiKey = val;
   localStorage.setItem('ftr_api_key', val);
+  // Mask display AFTER saving the real value
+  inputEl.value = val.substring(0, 12) + '••••••••••••••••••••••••';
   status.innerHTML = '<span class="key-ok">✓ Key saved to your browser — you won\'t need to enter it again. Pick a mode above.</span>';
-  document.getElementById('apiKeyInput').value = val.substring(0, 12) + '••••••••••••••••••••••••';
 }
 
 function clearApiKey() {
@@ -833,9 +843,12 @@ function clearApiKey() {
 
 function getApiHeaders() {
   if (!anthropicApiKey) throw new Error('No API key set — go back to the home screen and enter your Anthropic API key.');
+  // Strip any non-ASCII characters that would break HTTP headers
+  const cleanKey = anthropicApiKey.replace(/[^\x20-\x7E]/g, '').trim();
+  if (!cleanKey.startsWith('sk-ant-')) throw new Error('Saved API key looks invalid — go back to the home screen and re-enter it.');
   return {
     'Content-Type': 'application/json',
-    'x-api-key': anthropicApiKey,
+    'x-api-key': cleanKey,
     'anthropic-version': '2023-06-01',
     'anthropic-dangerous-direct-browser-access': 'true'
   };
